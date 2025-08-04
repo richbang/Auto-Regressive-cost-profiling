@@ -34,9 +34,9 @@ This tool addresses critical concerns about energy consumption and thermal costs
 
 ### Jetson Devices
 - Jetson Nano/TX2/Xavier/Orin
-- JetPack SDK installed
 - Python 3.8 or higher
 - PyTorch for Jetson
+- Access to /sys filesystem for power/thermal monitoring
 
 ## Installation
 
@@ -90,9 +90,13 @@ SAMPLES_PER_W_STAR = 5
 
 ### Jetson-specific Configuration
 
-For Jetson devices, set `PLATFORM = "jetson"` in config.py. The tool will automatically use tegrastats instead of nvidia-smi.
+For Jetson devices, set `PLATFORM = "jetson"` in config.py. The tool will read metrics directly from system files:
+- Power: `/sys/bus/i2c/drivers/ina3221/*/hwmon/hwmon*/` (voltage × current)
+- Temperature: `/sys/class/thermal/thermal_zone*/temp`
+- GPU Load: `/sys/devices/gpu.0/load`
+- Memory: `/proc/meminfo`
 
-Note: On Jetson, power measurements represent total system power (VDD_GPU_SOC or VDD_IN), not just GPU power.
+Note: Power measurements are calculated from INA3221 sensor readings (voltage × current for each rail).
 
 ## Advanced Usage
 
@@ -204,9 +208,10 @@ Add new entries to `DEVICE_CONFIGS` in `config.py`.
 - Close other GPU applications for accurate measurements
 - The tool simulates memory constraints using PyTorch's memory fraction limits
 - For Jetson devices:
-  - Power readings include entire SoC, not just GPU
+  - Power is calculated from INA3221 sensor (V × I)
+  - Temperature readings from thermal zones
   - Memory readings are system-wide
-  - Ensure tegrastats is accessible (usually requires sudo)
+  - Requires read access to /sys filesystem
   - Consider thermal throttling at high temperatures
 
 ## Citation

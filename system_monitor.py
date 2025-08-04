@@ -64,18 +64,7 @@ class SystemMonitor:
                     break
             
             if not tegrastats_cmd:
-                # Try multiple fallback methods
-                # 1. Try jtop
-                try:
-                    from jtop import jtop
-                    return self._get_jetson_metrics_jtop()
-                except (ImportError, Exception) as e:
-                    # jtop might be installed but service not running
-                    if "jtop.service is not active" not in str(e):
-                        print(f"jtop error: {e}")
-                    pass
-                
-                # 2. Try reading from system files directly
+                # Fallback to reading from system files directly
                 return self._get_jetson_metrics_sysfs()
             
             # Run tegrastats once and parse output
@@ -124,43 +113,6 @@ class SystemMonitor:
             print(f"Error getting Jetson metrics: {e}")
         return None
     
-    def _get_jetson_metrics_jtop(self) -> Optional[GPUMetrics]:
-        """Get metrics from Jetson using jtop library"""
-        try:
-            from jtop import jtop
-            
-            # This will fail if service is not active, triggering fallback to sysfs
-            with jtop() as jetson:
-                # Read stats
-                stats = jetson.stats
-                
-                # Get GPU metrics
-                gpu_util = jetson.gpu['gpu'] if 'gpu' in jetson.gpu else 0
-                
-                # Get temperature
-                temp = jetson.temperature['GPU'] if 'GPU' in jetson.temperature else \
-                       jetson.temperature.get('CPU', 0)
-                
-                # Get power
-                power = jetson.power['total']['power'] / 1000.0 if 'total' in jetson.power else 0
-                
-                # Get memory
-                memory = jetson.memory
-                mem_used = memory['used'] if 'used' in memory else 0
-                mem_total = memory['total'] if 'total' in memory else 0
-                
-                return GPUMetrics(
-                    timestamp=time.time(),
-                    memory_used_mb=mem_used,
-                    memory_total_mb=mem_total,
-                    utilization_percent=gpu_util,
-                    temperature_c=temp,
-                    power_w=power
-                )
-                
-        except Exception as e:
-            print(f"Error getting Jetson metrics with jtop: {e}")
-            return None
     
     def _get_jetson_metrics_sysfs(self) -> Optional[GPUMetrics]:
         """Get metrics from Jetson by reading system files directly"""
