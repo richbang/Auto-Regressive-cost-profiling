@@ -190,13 +190,44 @@ class SystemMonitor:
                     except:
                         pass
             
-            # 2. Try to get power consumption
-            power_files = [
-                "/sys/bus/i2c/drivers/ina3221x/0-0040/iio:device0/in_power0_input",
-                "/sys/bus/i2c/drivers/ina3221x/0-0041/iio:device0/in_power0_input",
-                "/sys/bus/i2c/drivers/ina3221x/1-0040/iio:device0/in_power0_input",
-                "/sys/bus/i2c/drivers/ina3221x/1-0041/iio:device0/in_power0_input"
-            ]
+            # 2. Try to get power consumption from hwmon
+            # First, find hwmon path dynamically
+            hwmon_base = "/sys/bus/i2c/drivers/ina3221/7-0040/hwmon"
+            hwmon_path = None
+            
+            if os.path.exists(hwmon_base):
+                # Find hwmon* directory
+                for item in os.listdir(hwmon_base):
+                    if item.startswith('hwmon'):
+                        hwmon_path = os.path.join(hwmon_base, item)
+                        break
+            
+            if hwmon_path:
+                # Read voltage and current to calculate power
+                try:
+                    # Read all channels
+                    for channel in range(1, 4):  # Channels 1, 2, 3
+                        voltage_file = os.path.join(hwmon_path, f"in{channel}_input")
+                        current_file = os.path.join(hwmon_path, f"curr{channel}_input")
+                        
+                        if os.path.exists(voltage_file) and os.path.exists(current_file):
+                            with open(voltage_file, 'r') as f:
+                                voltage_mv = float(f.read().strip())
+                            with open(current_file, 'r') as f:
+                                current_ma = float(f.read().strip())
+                            
+                            # Calculate power in mW (V * I)
+                            channel_power_mw = (voltage_mv / 1000.0) * current_ma
+                            power_mw += channel_power_mw
+                except:
+                    pass
+            
+            # Fallback to old paths if needed
+            if power_mw == 0.0:
+                power_files = [
+                    "/sys/bus/i2c/drivers/ina3221x/0-0040/iio:device0/in_power0_input",
+                    "/sys/bus/i2c/drivers/ina3221x/0-0041/iio:device0/in_power0_input"
+                ]
             
             for pfile in power_files:
                 if os.path.exists(pfile):

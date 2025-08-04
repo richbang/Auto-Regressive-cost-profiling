@@ -3,6 +3,9 @@ results/
 *.csv
 *.log
 
+# Model cache
+model_cache/
+
 # Python cache
 __pycache__/
 *.py[cod]
