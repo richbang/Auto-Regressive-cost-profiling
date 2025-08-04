@@ -18,20 +18,11 @@ DEVICE_CONFIGS = [
     {
         "name": "8GB_Device_FP16",  # Changed from INT8 to FP16 due to compatibility issues
         "memory_gb": 8,
-        "memory_fraction": 0.34,  # Simulates 8GB on 24GB GPU
+        "memory_fraction": 1.00,  # Simulates 8GB on 24GB GPU
         "gpu_id": 0,  # Default to GPU 0
         "model": MODEL_NAME,
         "torch_dtype": torch.float16,
         "load_in_8bit": False,  # Disabled INT8 due to library issues
-    },
-    {
-        "name": "16GB_Device_FP16",
-        "memory_gb": 16,
-        "memory_fraction": 0.67,  # Simulates 16GB on 24GB GPU
-        "gpu_id": 1,  # Default to GPU 1
-        "model": MODEL_NAME,
-        "torch_dtype": torch.float16,
-        "load_in_8bit": False,  # FP16 (no quantization)
     }
 ]
 
