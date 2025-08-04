@@ -21,8 +21,82 @@ from config import (
     DEVICE_CONFIGS, TEMPERATURE, TOP_P, TOP_K, PLATFORM
 )
 
-# Import edge inference functions
-from edge_inference import simulate_edge_inference
+# Edge inference function embedded for standalone operation
+
+def simulate_edge_inference(model, tokenizer, prompt, w_star, temperature=0.7, max_new_tokens=700):
+    """Simulate edge device inference up to w* tokens"""
+    device = next(model.parameters()).device
+    
+    # Tokenize prompt
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=512)
+    input_ids = inputs["input_ids"].to(device)
+    attention_mask = inputs["attention_mask"].to(device) if "attention_mask" in inputs else None
+    
+    prompt_length = input_ids.shape[1]
+    
+    print(f"  [Edge] Starting inference: prompt_length={prompt_length}, w_star={w_star}")
+    
+    # Initialize generation
+    generated_ids = input_ids
+    past_key_values = None
+    tokens_generated = 0
+    completed = False
+    
+    edge_start = time.time()
+    
+    # Generate up to w* tokens
+    with torch.no_grad():
+        for i in range(w_star):
+            # Forward pass
+            outputs = model(
+                input_ids=generated_ids[:, -1:] if past_key_values else generated_ids,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                use_cache=True
+            )
+            
+            past_key_values = outputs.past_key_values
+            logits = outputs.logits[:, -1, :]
+            
+            # Apply temperature
+            logits = logits / temperature
+            
+            # Sample next token
+            if temperature > 0:
+                probs = torch.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+            else:
+                next_token = torch.argmax(logits, dim=-1, keepdim=True)
+            
+            generated_ids = torch.cat([generated_ids, next_token], dim=1)
+            tokens_generated += 1
+            
+            # Progress indicator every 50 tokens
+            if (i + 1) % 50 == 0:
+                print(f"  [Edge] Generated {i+1}/{w_star} tokens...", end='\r')
+            
+            # Check for EOS
+            if next_token.item() == tokenizer.eos_token_id:
+                completed = True
+                break
+    
+    edge_time = time.time() - edge_start
+    
+    print(f"\n  [Edge] Completed: {tokens_generated} tokens in {edge_time:.2f}s ({tokens_generated/edge_time:.1f} tok/s)")
+    
+    # Clean up KV cache
+    del past_key_values
+    torch.cuda.empty_cache()
+    
+    return {
+        "type": "edge_complete" if completed else "edge_incomplete",
+        "edge_tokens": tokens_generated,
+        "edge_time": edge_time,
+        "prompt_length": prompt_length,
+        "total_length": generated_ids.shape[1],
+        "completed_at_edge": completed,
+        "tokens_per_second": tokens_generated / edge_time if edge_time > 0 else 0
+    }
 
 def get_test_prompts(num_samples: int) -> List[Tuple[str, Tuple[str, str]]]:
     """Get test prompts for inference"""
