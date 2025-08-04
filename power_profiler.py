@@ -47,21 +47,19 @@ def simulate_edge_inference(model, tokenizer, prompt, w_star, temperature=0.7, m
     # Generate up to w* tokens
     with torch.no_grad():
         for i in range(w_star):
-            # Update attention mask if needed
-            if attention_mask is not None and generated_ids.shape[1] > attention_mask.shape[1]:
-                attention_mask = torch.cat([
-                    attention_mask,
-                    torch.ones((attention_mask.shape[0], generated_ids.shape[1] - attention_mask.shape[1]), 
-                              dtype=attention_mask.dtype, device=attention_mask.device)
-                ], dim=1)
-            
-            # Forward pass
-            outputs = model(
-                input_ids=generated_ids[:, -1:] if past_key_values else generated_ids,
-                attention_mask=attention_mask,
-                past_key_values=past_key_values,
-                use_cache=True
-            )
+            # Forward pass - like slicer_client_metrics.py, don't pass attention_mask with past_key_values
+            if past_key_values:
+                outputs = model(
+                    input_ids=generated_ids[:, -1:],
+                    past_key_values=past_key_values,
+                    use_cache=True
+                )
+            else:
+                outputs = model(
+                    input_ids=generated_ids,
+                    attention_mask=attention_mask,
+                    use_cache=True
+                )
             
             past_key_values = outputs.past_key_values
             logits = outputs.logits[:, -1, :]
@@ -195,8 +193,9 @@ def run_inference_only(device_indices=None, w_star_values=None, samples=None):
             device_config['model'],
             torch_dtype=device_config.get('torch_dtype', torch.float16),
             low_cpu_mem_usage=True,
-            trust_remote_code=True
-        ).to(device).eval()
+            trust_remote_code=True,
+            device_map={"": device_config['gpu_id']}
+        ).eval()
         
         tokenizer = AutoTokenizer.from_pretrained(device_config['model'], trust_remote_code=True)
         if tokenizer.pad_token is None:
