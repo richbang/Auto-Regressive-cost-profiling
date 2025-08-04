@@ -44,7 +44,7 @@ class SystemMonitor:
             return self._get_desktop_metrics()
     
     def _get_jetson_metrics(self) -> Optional[GPUMetrics]:
-        """Get metrics from Jetson using tegrastats"""
+        """Get metrics from Jetson using tegrastats or system files"""
         try:
             # Try different possible locations for tegrastats
             tegrastats_paths = [
@@ -64,14 +64,16 @@ class SystemMonitor:
                     break
             
             if not tegrastats_cmd:
-                # Fallback: try using jetson-stats if installed
+                # Try multiple fallback methods
+                # 1. Try jtop
                 try:
                     from jtop import jtop
                     return self._get_jetson_metrics_jtop()
                 except ImportError:
-                    print("Error: tegrastats not found and jtop not installed.")
-                    print("Install jtop with: sudo pip3 install jetson-stats")
-                    return None
+                    pass
+                
+                # 2. Try reading from system files directly
+                return self._get_jetson_metrics_sysfs()
             
             # Run tegrastats once and parse output
             cmd = [tegrastats_cmd, '--once'] if '--once' in subprocess.run([tegrastats_cmd, '--help'], capture_output=True, text=True).stdout else [tegrastats_cmd]
@@ -154,6 +156,123 @@ class SystemMonitor:
                 
         except Exception as e:
             print(f"Error getting Jetson metrics with jtop: {e}")
+            return None
+    
+    def _get_jetson_metrics_sysfs(self) -> Optional[GPUMetrics]:
+        """Get metrics from Jetson by reading system files directly"""
+        try:
+            # Initialize default values
+            temperature = 0.0
+            power_mw = 0.0
+            gpu_util = 0.0
+            mem_used = 0.0
+            mem_total = 0.0
+            
+            # 1. Try to get temperature from thermal zones
+            thermal_zones = [
+                "/sys/devices/virtual/thermal/thermal_zone0/temp",
+                "/sys/devices/virtual/thermal/thermal_zone1/temp",
+                "/sys/class/thermal/thermal_zone0/temp",
+                "/sys/class/thermal/thermal_zone1/temp"
+            ]
+            
+            for zone in thermal_zones:
+                if os.path.exists(zone):
+                    try:
+                        with open(zone, 'r') as f:
+                            temp = int(f.read().strip()) / 1000.0
+                            if temp > temperature:
+                                temperature = temp
+                    except:
+                        pass
+            
+            # 2. Try to get power consumption
+            power_files = [
+                "/sys/bus/i2c/drivers/ina3221x/0-0040/iio:device0/in_power0_input",
+                "/sys/bus/i2c/drivers/ina3221x/0-0041/iio:device0/in_power0_input",
+                "/sys/bus/i2c/drivers/ina3221x/1-0040/iio:device0/in_power0_input",
+                "/sys/bus/i2c/drivers/ina3221x/1-0041/iio:device0/in_power0_input"
+            ]
+            
+            for pfile in power_files:
+                if os.path.exists(pfile):
+                    try:
+                        with open(pfile, 'r') as f:
+                            power_mw += float(f.read().strip())
+                    except:
+                        pass
+            
+            # 3. Try to get GPU utilization from sysfs
+            gpu_load_files = [
+                "/sys/devices/gpu.0/load",
+                "/sys/devices/17000000.gv11b/load",
+                "/sys/devices/17000000.ga10b/load"
+            ]
+            
+            for gfile in gpu_load_files:
+                if os.path.exists(gfile):
+                    try:
+                        with open(gfile, 'r') as f:
+                            gpu_util = float(f.read().strip()) / 10.0  # Often in per-mille
+                    except:
+                        pass
+            
+            # 4. Get memory info from /proc/meminfo
+            try:
+                with open('/proc/meminfo', 'r') as f:
+                    meminfo = f.read()
+                    
+                mem_total_kb = 0
+                mem_free_kb = 0
+                
+                for line in meminfo.split('\n'):
+                    if line.startswith('MemTotal:'):
+                        mem_total_kb = int(line.split()[1])
+                    elif line.startswith('MemAvailable:'):
+                        mem_free_kb = int(line.split()[1])
+                
+                mem_total = mem_total_kb / 1024.0  # Convert to MB
+                mem_used = (mem_total_kb - mem_free_kb) / 1024.0
+            except:
+                pass
+            
+            # 5. If still no GPU util, try nvidia-smi (some Jetsons might have it)
+            if gpu_util == 0.0:
+                try:
+                    result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'], 
+                                          capture_output=True, text=True, timeout=1)
+                    if result.returncode == 0:
+                        gpu_util = float(result.stdout.strip())
+                except:
+                    pass
+            
+            # Convert power from mW to W
+            power_w = power_mw / 1000.0
+            
+            # If we got at least some data, return it
+            if temperature > 0 or power_w > 0 or mem_total > 0:
+                return GPUMetrics(
+                    timestamp=time.time(),
+                    memory_used_mb=mem_used,
+                    memory_total_mb=mem_total,
+                    utilization_percent=gpu_util,
+                    temperature_c=temperature,
+                    power_w=power_w
+                )
+            else:
+                print("Warning: Unable to read Jetson metrics from sysfs")
+                # Return minimal metrics to keep the profiler running
+                return GPUMetrics(
+                    timestamp=time.time(),
+                    memory_used_mb=0,
+                    memory_total_mb=0,
+                    utilization_percent=0,
+                    temperature_c=0,
+                    power_w=0
+                )
+                
+        except Exception as e:
+            print(f"Error reading Jetson sysfs metrics: {e}")
             return None
     
     def _get_desktop_metrics(self) -> Optional[GPUMetrics]:
