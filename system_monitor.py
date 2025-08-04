@@ -46,8 +46,35 @@ class SystemMonitor:
     def _get_jetson_metrics(self) -> Optional[GPUMetrics]:
         """Get metrics from Jetson using tegrastats"""
         try:
+            # Try different possible locations for tegrastats
+            tegrastats_paths = [
+                'tegrastats',
+                '/usr/bin/tegrastats',
+                '/home/nvidia/tegrastats',
+                '/usr/local/bin/tegrastats'
+            ]
+            
+            tegrastats_cmd = None
+            for path in tegrastats_paths:
+                if subprocess.run(['which', path], capture_output=True).returncode == 0:
+                    tegrastats_cmd = path
+                    break
+                elif os.path.exists(path):
+                    tegrastats_cmd = path
+                    break
+            
+            if not tegrastats_cmd:
+                # Fallback: try using jetson-stats if installed
+                try:
+                    from jtop import jtop
+                    return self._get_jetson_metrics_jtop()
+                except ImportError:
+                    print("Error: tegrastats not found and jtop not installed.")
+                    print("Install jtop with: sudo pip3 install jetson-stats")
+                    return None
+            
             # Run tegrastats once and parse output
-            cmd = ['tegrastats', '--once']
+            cmd = [tegrastats_cmd, '--once'] if '--once' in subprocess.run([tegrastats_cmd, '--help'], capture_output=True, text=True).stdout else [tegrastats_cmd]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
             
             if result.returncode == 0:
@@ -91,6 +118,43 @@ class SystemMonitor:
         except Exception as e:
             print(f"Error getting Jetson metrics: {e}")
         return None
+    
+    def _get_jetson_metrics_jtop(self) -> Optional[GPUMetrics]:
+        """Get metrics from Jetson using jtop library"""
+        try:
+            from jtop import jtop
+            
+            with jtop() as jetson:
+                # Read stats
+                stats = jetson.stats
+                
+                # Get GPU metrics
+                gpu_util = jetson.gpu['gpu'] if 'gpu' in jetson.gpu else 0
+                
+                # Get temperature
+                temp = jetson.temperature['GPU'] if 'GPU' in jetson.temperature else \
+                       jetson.temperature.get('CPU', 0)
+                
+                # Get power
+                power = jetson.power['total']['power'] / 1000.0 if 'total' in jetson.power else 0
+                
+                # Get memory
+                memory = jetson.memory
+                mem_used = memory['used'] if 'used' in memory else 0
+                mem_total = memory['total'] if 'total' in memory else 0
+                
+                return GPUMetrics(
+                    timestamp=time.time(),
+                    memory_used_mb=mem_used,
+                    memory_total_mb=mem_total,
+                    utilization_percent=gpu_util,
+                    temperature_c=temp,
+                    power_w=power
+                )
+                
+        except Exception as e:
+            print(f"Error getting Jetson metrics with jtop: {e}")
+            return None
     
     def _get_desktop_metrics(self) -> Optional[GPUMetrics]:
         """Get metrics from desktop GPU using nvidia-smi"""
