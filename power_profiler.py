@@ -148,6 +148,9 @@ def run_device_profiling_process(device_config: Dict, w_star_values: List[int],
                                 result_queue: Queue):
     """Run power profiling for a single device in a separate process"""
     
+    # Disable tokenizer parallelism to avoid fork issues
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    
     # Set CUDA device for this process
     gpu_id = device_config['gpu_id']
     os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
@@ -485,6 +488,9 @@ def print_final_report(df: pd.DataFrame, output_dir: str, timestamp: str):
     log(f"\nReport saved to: {report_file}")
 
 def main():
+    # Disable tokenizer parallelism to avoid fork warnings
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    
     parser = argparse.ArgumentParser(description="Power profiling for SLICER edge devices")
     parser.add_argument("--devices", nargs="+", type=int, help="Device indices to test (e.g., 0 1)")
     parser.add_argument("--w-star", nargs="+", type=int, help="w* values to test")
@@ -506,4 +512,11 @@ def main():
     )
 
 if __name__ == "__main__":
+    # Set multiprocessing start method for better compatibility
+    import multiprocessing
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+    except RuntimeError:
+        pass  # Already set
+    
     main()
