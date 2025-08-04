@@ -69,7 +69,10 @@ class SystemMonitor:
                 try:
                     from jtop import jtop
                     return self._get_jetson_metrics_jtop()
-                except ImportError:
+                except (ImportError, Exception) as e:
+                    # jtop might be installed but service not running
+                    if "jtop.service is not active" not in str(e):
+                        print(f"jtop error: {e}")
                     pass
                 
                 # 2. Try reading from system files directly
@@ -126,6 +129,7 @@ class SystemMonitor:
         try:
             from jtop import jtop
             
+            # This will fail if service is not active, triggering fallback to sysfs
             with jtop() as jetson:
                 # Read stats
                 stats = jetson.stats
