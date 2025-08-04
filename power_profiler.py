@@ -414,6 +414,7 @@ def run_inference_only(device_indices=None, w_star_values=None, samples=None):
     """Run inference without power profiling"""
     print("=" * 80)
     print("INFERENCE ONLY MODE (No Power Profiling)")
+    print("GPU STRESS TEST - MAXIMUM UTILIZATION")
     print("=" * 80)
     
     # Select devices
@@ -422,13 +423,13 @@ def run_inference_only(device_indices=None, w_star_values=None, samples=None):
     else:
         test_devices = [DEVICE_CONFIGS[i] for i in device_indices if i < len(DEVICE_CONFIGS)]
     
-    # Select w* values
+    # Select w* values - use config defaults if not specified
     if w_star_values is None:
-        w_star_values = [50]  # Default single value
+        w_star_values = W_STAR_VALUES  # Use values from config.py
     
-    # Number of samples
+    # Number of samples - use config default if not specified
     if samples is None:
-        samples = 1
+        samples = SAMPLES_PER_W_STAR  # Use value from config.py
     
     # Load test prompts
     test_prompts = get_test_prompts(samples)

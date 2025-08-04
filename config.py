@@ -45,5 +45,5 @@ POWER_SAMPLE_INTERVAL = 0.2  # seconds between power measurements
 COOLDOWN_TIME = 3  # seconds between tests
 
 # Platform settings
-PLATFORM = "desktop"  # Options: "desktop" (nvidia-smi) or "jetson" (tegrastats)
+PLATFORM = "jetson"  # Options: "desktop" (nvidia-smi) or "jetson" (tegrastats)
 # For Jetson, install: sudo pip3 install jetson-stats
