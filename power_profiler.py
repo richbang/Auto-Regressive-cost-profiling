@@ -410,6 +410,97 @@ def run_power_profiling(
     
     return all_df
 
+def test_system_monitoring():
+    """Test system monitoring capabilities before model loading"""
+    print("=" * 80)
+    print("SYSTEM MONITORING TEST")
+    print("=" * 80)
+    print(f"\nPlatform: {PLATFORM}")
+    print(f"Python: {sys.version.split()[0]}")
+    print(f"PyTorch: {torch.__version__}")
+    print(f"CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"CUDA device count: {torch.cuda.device_count()}")
+        print(f"CUDA device name: {torch.cuda.get_device_name(0)}")
+    
+    # Test each configured device
+    for i, device_config in enumerate(DEVICE_CONFIGS):
+        print(f"\n--- Testing Device {i}: {device_config['name']} ---")
+        
+        # Initialize monitor
+        gpu_id = device_config['gpu_id']
+        monitor = SystemMonitor(gpu_id=gpu_id, interval=0.5, platform=PLATFORM)
+        
+        # Test single metric read
+        print("\n1. Testing single metric read...")
+        metrics = monitor.get_gpu_metrics()
+        if metrics:
+            print(f"   ✓ Temperature: {metrics.temperature_c:.1f}°C")
+            print(f"   ✓ Power: {metrics.power_w:.1f}W")
+            print(f"   ✓ Memory: {metrics.memory_used_mb:.0f}/{metrics.memory_total_mb:.0f}MB")
+            print(f"   ✓ GPU Utilization: {metrics.utilization_percent:.1f}%")
+        else:
+            print("   ✗ Failed to get metrics")
+        
+        # Test continuous monitoring
+        print("\n2. Testing continuous monitoring (5 seconds)...")
+        monitor.clear_history()
+        monitor.start_monitoring()
+        
+        # Show live updates
+        for i in range(5):
+            time.sleep(1)
+            current = monitor.get_gpu_metrics()
+            if current:
+                print(f"   [{i+1}s] Temp: {current.temperature_c:.1f}°C, "
+                      f"Power: {current.power_w:.1f}W, "
+                      f"GPU: {current.utilization_percent:.1f}%", end='\r')
+        
+        monitor.stop_monitoring()
+        print()  # New line after updates
+        
+        # Get summary
+        summary = monitor.get_metrics_summary()
+        if summary and 'gpu' in summary:
+            gpu_stats = summary['gpu']
+            print("\n3. Monitoring Summary:")
+            print(f"   - Samples collected: {gpu_stats.get('sample_count', 0)}")
+            print(f"   - Avg Power: {gpu_stats.get('avg_power_w', 0):.1f}W")
+            print(f"   - Max Power: {gpu_stats.get('max_power_w', 0):.1f}W")
+            print(f"   - Avg Temp: {gpu_stats.get('avg_temp_c', 0):.1f}°C")
+            print(f"   - Max Temp: {gpu_stats.get('max_temp_c', 0):.1f}°C")
+        
+        # Check available system files (for Jetson)
+        if PLATFORM == "jetson":
+            print("\n4. Checking Jetson system files:")
+            sysfs_paths = {
+                "Thermal zones": "/sys/class/thermal/thermal_zone*/temp",
+                "Power sensors": "/sys/bus/i2c/drivers/ina3221x/*/iio:device0/in_power*_input",
+                "GPU load": "/sys/devices/gpu.0/load",
+                "Memory info": "/proc/meminfo"
+            }
+            
+            for name, pattern in sysfs_paths.items():
+                import glob
+                files = glob.glob(pattern)
+                if files:
+                    print(f"   ✓ {name}: Found {len(files)} file(s)")
+                    # Show first file content as example
+                    try:
+                        with open(files[0], 'r') as f:
+                            content = f.read().strip()
+                            print(f"     Example ({files[0]}): {content}")
+                    except:
+                        pass
+                else:
+                    print(f"   ✗ {name}: Not found")
+    
+    print("\n" + "=" * 80)
+    print("TEST COMPLETE")
+    print("=" * 80)
+    print("\nIf monitoring is working correctly, you can proceed with full profiling.")
+    print("Run without --test-monitor flag to start power profiling.")
+
 def print_final_report(df: pd.DataFrame, output_dir: str, timestamp: str):
     """Print and save final report"""
     
@@ -496,8 +587,14 @@ def main():
     parser.add_argument("--w-star", nargs="+", type=int, help="w* values to test")
     parser.add_argument("--output", default="results", help="Output directory")
     parser.add_argument("--samples", type=int, help="Samples per w* value")
+    parser.add_argument("--test-monitor", action="store_true", help="Test system monitoring before model loading")
     
     args = parser.parse_args()
+    
+    # Test monitoring if requested
+    if args.test_monitor:
+        test_system_monitoring()
+        return
     
     # Override config if specified
     if args.samples:
