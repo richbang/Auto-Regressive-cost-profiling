@@ -47,6 +47,14 @@ def simulate_edge_inference(model, tokenizer, prompt, w_star, temperature=0.7, m
     # Generate up to w* tokens
     with torch.no_grad():
         for i in range(w_star):
+            # Update attention mask if needed
+            if attention_mask is not None and generated_ids.shape[1] > attention_mask.shape[1]:
+                attention_mask = torch.cat([
+                    attention_mask,
+                    torch.ones((attention_mask.shape[0], generated_ids.shape[1] - attention_mask.shape[1]), 
+                              dtype=attention_mask.dtype, device=attention_mask.device)
+                ], dim=1)
+            
             # Forward pass
             outputs = model(
                 input_ids=generated_ids[:, -1:] if past_key_values else generated_ids,
@@ -200,8 +208,8 @@ def run_inference_only(device_indices=None, w_star_values=None, samples=None):
         for w_star in w_star_values:
             print(f"\n[w* = {w_star}]")
             
-            for i, (prompt_id, (system, user)) in enumerate(test_prompts):
-                # Format prompt
+            for i, (prompt_type, (system, user)) in enumerate(test_prompts):
+                # Format prompt correctly
                 if "phi" in device_config['model'].lower():
                     full_prompt = format_phi_prompt(system, user)
                 elif "llama" in device_config['model'].lower():
