@@ -410,6 +410,91 @@ def run_power_profiling(
     
     return all_df
 
+def run_inference_only(device_indices=None, w_star_values=None, samples=None):
+    """Run inference without power profiling"""
+    print("=" * 80)
+    print("INFERENCE ONLY MODE (No Power Profiling)")
+    print("=" * 80)
+    
+    # Select devices
+    if device_indices is None:
+        test_devices = DEVICE_CONFIGS[:1]  # Just first device
+    else:
+        test_devices = [DEVICE_CONFIGS[i] for i in device_indices if i < len(DEVICE_CONFIGS)]
+    
+    # Select w* values
+    if w_star_values is None:
+        w_star_values = [50]  # Default single value
+    
+    # Number of samples
+    if samples is None:
+        samples = 1
+    
+    # Load test prompts
+    test_prompts = get_test_prompts(samples)
+    
+    for device_config in test_devices:
+        print(f"\n--- Device: {device_config['name']} ---")
+        
+        # Set device
+        device = torch.device(f"cuda:{device_config['gpu_id']}" if torch.cuda.is_available() else "cpu")
+        torch.cuda.set_device(device_config['gpu_id'])
+        
+        # Load model
+        print(f"\nLoading model...")
+        start_time = time.time()
+        
+        model = AutoModelForCausalLM.from_pretrained(
+            device_config['model'],
+            torch_dtype=device_config.get('torch_dtype', torch.float16),
+            low_cpu_mem_usage=True,
+            trust_remote_code=True
+        ).to(device).eval()
+        
+        tokenizer = AutoTokenizer.from_pretrained(device_config['model'], trust_remote_code=True)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        
+        print(f"Model loaded in {time.time() - start_time:.1f}s")
+        
+        # Test each w* value
+        for w_star in w_star_values:
+            print(f"\n[w* = {w_star}]")
+            
+            for i, (prompt_id, (system, user)) in enumerate(test_prompts):
+                # Format prompt
+                if "phi" in device_config['model'].lower():
+                    full_prompt = format_phi_prompt(system, user)
+                elif "llama" in device_config['model'].lower():
+                    full_prompt = format_llama_prompt(system, user)
+                else:
+                    full_prompt = f"{system}\n\n{user}"
+                
+                print(f"\nSample {i+1}/{samples}:")
+                print(f"Prompt: {full_prompt[:100]}...")
+                
+                # Run inference
+                start_time = time.time()
+                result = edge_inference(model, tokenizer, device, full_prompt, w_star,
+                                      temperature=TEMPERATURE, max_new_tokens=MAX_NEW_TOKENS)
+                inference_time = time.time() - start_time
+                
+                print(f"Generated {result['edge_tokens']} tokens in {inference_time:.2f}s "
+                      f"({result['tokens_per_second']:.1f} tok/s)")
+                
+                if result['completed_at_edge']:
+                    print("✓ Completed at edge")
+                else:
+                    print("→ Would need server continuation")
+        
+        # Clean up
+        del model
+        torch.cuda.empty_cache()
+    
+    print("\n" + "=" * 80)
+    print("INFERENCE COMPLETE")
+    print("=" * 80)
+
 def test_system_monitoring():
     """Test system monitoring capabilities before model loading"""
     print("=" * 80)
@@ -588,12 +673,22 @@ def main():
     parser.add_argument("--output", default="results", help="Output directory")
     parser.add_argument("--samples", type=int, help="Samples per w* value")
     parser.add_argument("--test-monitor", action="store_true", help="Test system monitoring before model loading")
+    parser.add_argument("--no-profile", action="store_true", help="Run inference without power profiling")
     
     args = parser.parse_args()
     
     # Test monitoring if requested
     if args.test_monitor:
         test_system_monitoring()
+        return
+    
+    # Run without profiling if requested
+    if args.no_profile:
+        run_inference_only(
+            device_indices=args.devices,
+            w_star_values=args.w_star,
+            samples=args.samples
+        )
         return
     
     # Override config if specified
